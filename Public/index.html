@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Reminder Scheduler</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for dark theme and subtle glow */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark background */
+            color: #c9d1d9; /* Light text */
+        }
+        .card {
+            background-color: #161b22; /* Slightly lighter card background */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2), 0 10px 20px rgba(0, 0, 0, 0.4);
+            transition: transform 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+        }
+        .btn-primary {
+            background-color: #238636; /* GitHub green */
+            color: #ffffff;
+            transition: background-color 0.2s;
+        }
+        .btn-primary:hover {
+            background-color: #2ea043;
+        }
+        .input-style {
+            background-color: #0d1117;
+            border-color: #30363d;
+            color: #c9d1d9;
+        }
+        /* Style for the custom message box */
+        #message-box {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen flex items-center justify-center">
+
+    <div class="w-full max-w-xl">
+        <div class="card p-6 rounded-xl space-y-6">
+            <h1 class="text-3xl font-bold text-center text-white border-b pb-3 border-gray-700">
+                Email Reminder Scheduler
+            </h1>
+            <p class="text-center text-gray-400">
+                Schedule a one-time reminder email using the API at <code>http://localhost:5000/api/reminders</code>
+            </p>
+
+            <!-- Reminder Form -->
+            <form id="reminder-form" class="space-y-4">
+                
+                <!-- Email Input -->
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-300 mb-1">Recipient Email</label>
+                    <input type="email" id="email" required placeholder="name@example.com"
+                           class="w-full p-3 rounded-lg input-style border focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <!-- Message Input -->
+                <div>
+                    <label for="message" class="block text-sm font-medium text-gray-300 mb-1">Reminder Message</label>
+                    <textarea id="message" rows="4" required placeholder="What do you need to be reminded of?"
+                              class="w-full p-3 rounded-lg input-style border focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+
+                <!-- Schedule Time Input -->
+                <div>
+                    <label for="scheduleTime" class="block text-sm font-medium text-gray-300 mb-1">Schedule Time</label>
+                    <input type="datetime-local" id="scheduleTime" required
+                           class="w-full p-3 rounded-lg input-style border focus:ring-blue-500 focus:border-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">Select a time in the future (uses local time).</p>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" id="submit-button"
+                        class="btn-primary w-full py-3 rounded-lg font-semibold text-lg hover:shadow-lg transition duration-150">
+                    Schedule Reminder
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Message Box for Feedback (Success/Error) -->
+    <div id="message-box" class="space-y-2">
+        <!-- Messages will be injected here -->
+    </div>
+
+    <script>
+        // Base API URL
+        const API_URL = 'http://localhost:5000/api/reminders';
+        const form = document.getElementById('reminder-form');
+        const submitButton = document.getElementById('submit-button');
+        const messageBox = document.getElementById('message-box');
+
+        // Function to display messages (success/error)
+        function showMessage(text, isSuccess = true) {
+            const el = document.createElement('div');
+            el.className = `p-4 rounded-lg shadow-xl text-white ${isSuccess ? 'bg-green-600' : 'bg-red-600'} transition-all duration-300 transform translate-y-0`;
+            el.innerHTML = `<p class="font-semibold">${text}</p>`;
+            
+            messageBox.prepend(el);
+
+            // Automatically remove the message after 5 seconds
+            setTimeout(() => {
+                el.classList.add('opacity-0', 'transform', '-translate-y-4');
+                el.addEventListener('transitionend', () => el.remove());
+            }, 5000);
+        }
+
+        // Set the minimum datetime to the current time to prevent scheduling in the past
+        document.addEventListener('DOMContentLoaded', () => {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hour = String(now.getHours()).padStart(2, '0');
+            const minute = String(now.getMinutes()).padStart(2, '0');
+
+            // Format as YYYY-MM-DDTHH:mm
+            const datetimeLocal = `${year}-${month}-${day}T${hour}:${minute}`;
+            document.getElementById('scheduleTime').min = datetimeLocal;
+        });
+
+        // Form Submission Handler
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            submitButton.disabled = true;
+            submitButton.textContent = 'Scheduling...';
+            submitButton.classList.add('opacity-50');
+
+            const email = document.getElementById('email').value;
+            const message = document.getElementById('message').value;
+            const scheduleTimeLocal = document.getElementById('scheduleTime').value;
+
+            // Convert local datetime to ISO string for the backend
+            const scheduleTime = new Date(scheduleTimeLocal).toISOString();
+
+            // Simple validation check (must be a future time)
+            if (new Date(scheduleTime) <= new Date()) {
+                showMessage('Schedule time must be in the future.', false);
+                submitButton.disabled = false;
+                submitButton.textContent = 'Schedule Reminder';
+                submitButton.classList.remove('opacity-50');
+                return;
+            }
+
+            const payload = { email, message, scheduleTime };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage(`Success! Reminder scheduled for ${new Date(data.scheduleTime).toLocaleString()}.`, true);
+                    form.reset(); // Clear the form on success
+                } else {
+                    // Display error message from the backend
+                    const errorMsg = data.message || 'An unknown error occurred on the server.';
+                    showMessage(`Failed to schedule: ${errorMsg}`, false);
+                }
+
+            } catch (error) {
+                console.error('API call failed:', error);
+                showMessage('Network error or server is unreachable (Port 5000).', false);
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Schedule Reminder';
+                submitButton.classList.remove('opacity-50');
+            }
+        });
+    </script>
+
+</body>
+</html>
